@@ -1,1 +1,3 @@
-#(Flexible Single Master Operations)
+# Flexible Single Master Operations (FSMO)
+# Check or Identify Current Server (PDC Emulator, RID Master, Domain Infrastructure Master, Naming Master, Schema Master)
+>netdom query fsmo
