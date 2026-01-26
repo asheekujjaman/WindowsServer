@@ -18,3 +18,9 @@ Open Command line from DC Server and run following commad.
   #quit [for exit]
 
   
+If your current DC server is unablle to run. you fisrt cmd from any ADC server. make connection form tageted server and runn follow commad.
+  #Seize PDC               [Make connected server the PDC]
+  #Seize RID master       [Make connected server the RID master]
+  #Seize infrastructure master       [Make connected server the infrastructure master]
+  #Seize naming master             [Make connected server the naming master]
+  #Seize schema master             [Make connected server the schema master]
