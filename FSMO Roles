@@ -1,4 +1,20 @@
-# Flexible Single Master Operations (FSMO)
-# Check or Identify Current Server (PDC Emulator, RID Master, Domain Infrastructure Master, Naming Master, Schema Master)
->
-<code style="color : red">netdom query fsmo</code>
+Flexible Single Master Operations (FSMO)
+Check or Identify Current Server (PDC Emulator, RID Master, Domain Infrastructure Master, Naming Master, Schema Master)
+Open Command line form any server and run this command.
+  #netdom query fsmo
+
+Change Role to another server
+Open Command line from DC Server and run following commad.
+  #ntdsutil
+  #role
+  #connections
+  #connect to server SERVER_NAME     [target server which select for role]
+  #quit         [quit from connection]
+  #Transfer PDC               [Make connected server the PDC]
+  #Transfer RID master       [Make connected server the RID master]
+  #Transfer infrastructure master       [Make connected server the infrastructure master]
+  #Transfer naming master             [Make connected server the naming master]
+  #Transfer schema master             [Make connected server the schema master]
+  #quit [for exit]
+
+  
