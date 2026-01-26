@@ -17,6 +17,26 @@ Open Command line from DC Server and run following commad.
   #Transfer schema master             [Make connected server the schema master]
   #quit [for exit]
 
+========== By GUI =========
+For change PDC Emulator, RID Master, Infrastructure master open Active Directory users and computers from any server console.
+Step 1:  Change the Domain Controller. Right click on "Active Directory users and computer" 
+          then click change Domain Controller and selcet target Server and click okay.
+Step 2: Right click on Domain name then clik "Oparation Master". then change each Role.
+
+For change Domaning naming master Open Active Directory Domains and Trusts from any server console
+Step 1:  Change the Domain Controller. Right click on "Active Directory Domains and Trusts" 
+          then click change Domain Controller and selcet target Server and click okay.
+Step 2: Right click on "Active Directory Domains and Trusts" then clik "Oparation Master". then change Role.
+  
+For change Schema master 
+Step 1: regsvr32 schmmgmt.dll [Run this from command line]
+Step 2: Open MMC: Type mmc in the Run box (Windows Key + R), then click File > Add/Remove Snap-in.
+Step 3: Add Snap-in: Select Active Directory Schema from the list, click Add, and then OK
+Step 4: Connect to Target DC: Right-click Active Directory Schema in the console, 
+        select Change Domain Controller, choose the new DC, and click OK.
+Step 5: Transfer Role: Right-click Active Directory Schema again, select Operations Master, click Change, and confirm with OK. 
+
+===================================== 
   
 If your current DC server is unablle to run. you fisrt cmd from any ADC server. make connection form tageted server and runn follow commad.
   #Seize PDC               [Make connected server the PDC]
