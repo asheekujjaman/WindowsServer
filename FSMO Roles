@@ -38,9 +38,57 @@ Step 5: Transfer Role: Right-click Active Directory Schema again, select Operati
 
 ===================================== 
   
-If your current DC server is unablle to run. you fisrt cmd from any ADC server. make connection form tageted server and runn follow commad.
+If your current DC server is unable to run. you fisrt cmd from any ADC server. make connection to the targeted server and run the following command.
   #Seize PDC               [Make connected server the PDC]
   #Seize RID master       [Make connected server the RID master]
   #Seize infrastructure master       [Make connected server the infrastructure master]
   #Seize naming master             [Make connected server the naming master]
   #Seize schema master             [Make connected server the schema master]
+
+
+
+Schema Master: Forest Level
+Controls all updates and modifications to the AD schema — the blueprint defining every object class and attribute.
+Scope: One per entire forest
+Impact if down: Schema changes blocked. Normal authentication and replication continue unaffected.
+Failure urgency: Low — rarely needed outside major upgrades (e.g., adprep /forestprep)
+Key tasks: Schema extensions; adprep /forestprep; Exchange/SCCM prep
+Best practice: Place on the same DC as the Domain Naming Master. Protect tightly — schema changes are irreversible.
+
+
+Domain Naming Master: Forest Level
+Authorizes adding or removing domains and application partitions in the forest. Ensures unique domain names.
+Scope: One per entire forest
+Impact if down: Cannot add/remove domains or domain partitions. Existing operations are unaffected.
+Failure urgency: Low — only critical when restructuring forest
+Key tasks: Add child domain; Remove domain; Cross-forest trust setup
+Best practice: Should also be a Global Catalog server (required in Windows 2000 environments).
+
+RID Master: Domain Level
+Allocates pools of Relative Identifiers (RIDs) to DCs, ensuring every security principal (user, group, computer) gets a unique SID.
+Scope: One per domain
+Impact if down: DCs use existing RID pools. Object creation fails only when pools are exhausted.
+Failure urgency: Medium — recover within days, especially in busy environments
+Key tasks: Allocate RID pools, SID uniqueness, DC promotion support
+Best practice: Co-locate with PDC Emulator for efficient RID pool requests.
+
+
+PDC Emulator: Domain Level
+The most critical and busiest FSMO role — handles password changes, account lockouts, time synchronisation, and legacy NT compatibility.
+Scope: One per domain
+Impact if down: Password changes may fail or be delayed, lockout processing slows, time skew risks Kerberos failures, Group Policy editing may break.
+Failure urgency: High — restore or seize within hours in production
+Key tasks: Password replication; Account lockout; Time sync (NTP root); Group Policy editing; NT 4.0 emulation
+Best practice: Place on the fastest (Closer to user), most reliable DC. Sync time from an external NTP source. Monitor closely.
+
+
+Infrastructure Master: Domain Level
+Maintains cross-domain object references — updates phantom objects[not full objects, just references. They contain minimal identifying information: GUID (Globally Unique Identifier), SID (Security Identifier), Distinguished Name (DN)] (e.g., when a user in Domain A belongs to a group in Domain B).
+Scope: One per domain
+Impact if down: Cross-domain group memberships may show stale/missing display names. Functional impact is minimal but permissions auditing becomes inaccurate.
+Failure urgency: Low — only visible in multi-domain forests
+Key tasks: Phantom object updates; Cross-domain group membership (Keeps names and attributes of foreign objects up to date); Object reference integrity
+Critical rule: Must NOT be placed on a Global Catalog server (in a multi-domain forest). The GC has all cross-domain data, so the IM would never detect phantom updates — except if all DCs are GCs.
+
+
+
