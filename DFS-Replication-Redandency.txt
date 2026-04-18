@@ -1,0 +1,23 @@
+DFS - Repliction - Redandency
+
+=============================================================
+Need features and role (feature under file and storage services)
+	1. DFS Namespaces
+	2. DFS Replication
+Install those role eatch server which select for DFS Services
+
+DFS Configuration:
+	1. Open DFS Management 
+	2. Crate a namespace. After create and namespace server (in ever server namespace is visible)
+	3. Add all share Folder.
+
+DFS Replication:
+	1. Crate a replication group (grup member: all dfs server; primary server which belongs share folder)
+	1.1. If share folder belongs difference server (than now add new replicated folder and selecet primary server which belongs folder and complete process)
+
+
+DFS Redandency:
+At first share those folder which replicated form anathoer server. (Check eatch server)
+	1. Expand namespaces and select folder one by one.
+	2. Right click and add folder target.
+if ask for replication group click no because we allready create that.
