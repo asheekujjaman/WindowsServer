@@ -1,0 +1,33 @@
+#Need tools qemu-img-win-x64-2_3_0
+1. VMware VM সম্পূর্ণ বন্ধ করুন. VMware snapshot থাকলে আগে Delete/Consolidate করুন এবং সম্পূর্ণ VM folder-এর backup রাখুন।
+২. VMDK-কে VHDX করুন| Microsoft-এর Convert-VHD সরাসরি VMDK নেয় না। qemu-img VMDK ও Hyper-V compatible VHDX—দুটিই সমর্থন করে এবং offline conversion করতে পারে। যে .vmdk ফাইলটি ছোট descriptor file, সেটি ব্যবহার করুন—-flat.vmdk ফাইলটি সরাসরি দেবেন না।
+#================Convert Script ======
+qemu-img info "D:\VMware\EVE-NG\EVE-NG.vmdk"
+qemu-img convert -p `
+  -f vmdk `
+  -O vhdx `
+  -o subformat=dynamic `
+  "D:\VMware\EVE-NG\EVE-NG.vmdk" `
+  "D:\Hyper-V\EVE-NG\EVE-NG.vhdx"
+
+৩. Hyper-V VM তৈরি করুন Hyper-V Manager থেকে: 
+>New → Virtual Machine
+>নাম দিন EVE-NG
+>পুরোনো VMware EVE-NG appliance হলে প্রথমে Generation 1 ব্যবহার করুন| Prebuilt disk UEFI-compatible না হলে Generation 1 প্রয়োজন হতে পারে; VM generation পরে সরাসরি পরিবর্তন করা যায় না।
+>VMware-এ যত RAM ছিল অন্তত তত RAM দিন
+>Dynamic Memory বন্ধ রাখুন
+>অন্তত আগের সমান vCPU দিন
+>External Virtual Switch নির্বাচন করুন
+>Use an existing virtual hard disk দিয়ে converted EVE-NG.vhdx যুক্ত করুন
+
+#Step 4, 5 only for eve or gns3 or esxi etc.
+৪. Nested virtualization চালু করুন| VM অবশ্যই Off অবস্থায় রেখে Administrator PowerShell চালান:
+#==========Nested virtualization on Script======
+$VMName = "EVE-NG"
+Set-VMProcessor `
+  -VMName $VMName `
+  -ExposeVirtualizationExtensions $true
+
+5. তারপর MAC spoofing চালু করুন:
+Get-VMNetworkAdapter -VMName $VMName |
+    Set-VMNetworkAdapter -MacAddressSpoofing On
