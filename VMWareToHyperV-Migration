@@ -10,6 +10,8 @@ qemu-img convert -p `
   -o subformat=dynamic `
   "D:\VMware\EVE-NG\EVE-NG.vmdk" `
   "D:\Hyper-V\EVE-NG\EVE-NG.vhdx"
+#Or Negegate qeme-img.exe folder and opne powershel then run command in one line
+.\qemu-img.exe convert -p -f vmdk -O vhdx -o subformat=dynamic "$env:USERPROFILE\Documents\Virtual Machines\EVE\EVE-disk1.vmdk" "D:\Hyper-V\EVE\EVE-disk1.vhdx"
 
 ৩. Hyper-V VM তৈরি করুন Hyper-V Manager থেকে: 
 >New → Virtual Machine
