@@ -1,6 +1,7 @@
 #Need tools qemu-img-win-x64-2_3_0
 1. VMware VM সম্পূর্ণ বন্ধ করুন. VMware snapshot থাকলে আগে Delete/Consolidate করুন এবং সম্পূর্ণ VM folder-এর backup রাখুন।
 ২. VMDK-কে VHDX করুন| Microsoft-এর Convert-VHD সরাসরি VMDK নেয় না। qemu-img VMDK ও Hyper-V compatible VHDX—দুটিই সমর্থন করে এবং offline conversion করতে পারে। যে .vmdk ফাইলটি ছোট descriptor file, সেটি ব্যবহার করুন—-flat.vmdk ফাইলটি সরাসরি দেবেন না।
+#Fist create destination folder
 #================Convert Script ======
 qemu-img info "D:\VMware\EVE-NG\EVE-NG.vmdk"
 qemu-img convert -p `
@@ -29,5 +30,4 @@ Set-VMProcessor `
   -ExposeVirtualizationExtensions $true
 
 5. তারপর MAC spoofing চালু করুন:
-Get-VMNetworkAdapter -VMName $VMName |
-    Set-VMNetworkAdapter -MacAddressSpoofing On
+Get-VMNetworkAdapter -VMName "EVE-NG" | Set-VMNetworkAdapter -MacAddressSpoofing On
