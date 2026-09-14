@@ -1,0 +1,332 @@
+ROAMING USER PROFILE DEPLOYMENT – WINDOWS SERVER
+===================================================
+
+Purpose
+-------
+This document provides a practical, Microsoft-aligned procedure for deploying Roaming User Profiles in an Active Directory environment.
+
+Reference: Microsoft Learn – Deploy roaming user profiles
+https://learn.microsoft.com/en-us/windows-server/storage/folder-redirection/deploy-roaming-user-profiles
+
+Environment used in this guide
+------------------------------
+Domain:              <DOMAIN>
+File Server:         <FILESERVER>
+Profile Share:       PSHARE
+Profile Share Path:  \\<FILESERVER>\PSHARE
+Security Group:      RoamingGroup
+Test User:           PR3
+
+IMPORTANT
+---------
+Roaming User Profiles are different from Folder Redirection.
+Roaming profile: Stores the Windows user profile on a network share so profile settings can follow the user between domain-joined computers.
+Folder Redirection: Redirects folders such as Documents/Desktop to a network location.
+For production environments, Microsoft recommends using Folder Redirection for user data where appropriate so the roaming profile remains smaller and sign-in/sign-out is faster.
+
+====================================================================
+1. PREREQUISITES
+====================================================================
+1. Active Directory Domain Services is available.
+2. Client computers are joined to the domain.
+3. A Windows Server file server is available.
+4. The administrator has appropriate AD/GPO permissions.
+5. SMB connectivity between clients and the file server is working.
+6. DNS correctly resolves the file server name.
+7. The user is a member of the roaming-profile security group.
+
+Connectivity test from the client:
+    nslookup <FILESERVER>
+    Test-NetConnection <FILESERVER> -Port 445
+The SMB test should report:
+    TcpTestSucceeded : True
+
+====================================================================
+2. CREATE A SECURITY GROUP
+====================================================================
+Create a dedicated security group for users who will receive roaming profiles.
+Recommended example:
+    Group name:   RoamingGroup
+    Group type:   Security
+    Group scope:  Global
+Add the required users, for example:
+    PR3
+    User2
+    User3
+PowerShell example:
+    New-ADGroup -Name "RoamingGroup" `
+        -GroupScope Global `
+        -GroupCategory Security
+Add PR3:
+    Add-ADGroupMember -Identity "RoamingGroup" -Members "PR3"
+Verify:
+    Get-ADGroupMember "RoamingGroup"
+
+====================================================================
+3. CREATE THE PROFILE SHARE
+====================================================================
+On the file server create a dedicated folder, for example: D:\PSHARE
+Create an SMB share: Share name: PSHARE
+The resulting UNC path is: \\<FILESERVER>\PSHARE
+Microsoft recommends using a separate share for roaming profiles rather than mixing it with redirected folders.
+OPTIONAL: A hidden share can be used: PSHARE$
+Then the UNC path becomes: \\<FILESERVER>\PSHARE$
+
+Do NOT manually create a PR3 folder as the normal deployment method. Windows creates the user's profile directory when the user signs in, provided the profile path and permissions are correct.
+
+====================================================================
+4. SHARE PERMISSIONS
+====================================================================
+For the profile share, do not simply give every user Full Control to the root folder.
+A Microsoft-aligned configuration uses special permissions at the share/root level.
+Conceptually:
+SHARE PERMISSIONS----
+	Domain Users/Everyone: Full Control
+
+NTFS PERMISSIONS-----
+    SYSTEM: Full Control
+    Administrators: Full Control
+    RoamingGroup: 
+	List folder / read data
+        Create folders / append data
+        Applies to: This folder only
+    Creator Owner:
+        Full Control
+        Applies to: Subfolders and files only
+
+Remove unnecessary groups/accounts from the profile-share ACL.
+
+NOTE: The exact security dialog wording can differ between Windows Server versions. Use Advanced Security Settings to verify the "Applies to" scope.
+
+
+====================================================================
+5. CONFIGURE THE USER'S PROFILE PATH IN AD
+====================================================================
+Open: Active Directory Users and Computers
+        User> Properties> Profile
+For PR3, configure:
+    Profile path:
+    \\<FILESERVER>\PSHARE\%username%
+Example:
+    \\DFS01\PSHARE\%username%
+When PR3 signs in, %username% is replaced with:
+    PR3
+
+Therefore Windows will use a path similar to:
+    \\DFS01\PSHARE\PR3
+
+Depending on the Windows version/profile implementation, Windows may create a profile-version-specific directory such as PR3.V6 or another appropriate profile version.
+DO NOT hard-code a local path such as:
+    C:\Users\PR3
+The profile path must be a UNC network path.
+
+
+====================================================================
+7. VERIFY THE AD PROFILE PATH WITH POWERSHELL
+====================================================================
+Run on a domain controller or management computer:
+    Get-ADUser PR3 -Properties ProfilePath | Select-Object Name,ProfilePath
+
+Expected:
+    Name    ProfilePath
+    ----    -----------
+    PR3     \\<FILESERVER>\PSHARE\%username%
+
+If ProfilePath is blank or incorrect, correct it before testing.
+
+
+====================================================================
+8. TEST ACCESS BEFORE LOGON
+====================================================================
+Log in to the client as PR3.
+Test the share: \\<FILESERVER>\PSHARE
+Test SMB: Test-NetConnection <FILESERVER> -Port 445
+Check the user's group membership: whoami /groups
+Confirm that RoamingGroup appears.
+You can also test: net use \\<FILESERVER>\PSHARE
+
+IMPORTANT:
+If PR3 cannot access the profile share, Windows cannot download or create the roaming profile.
+
+====================================================================
+9. TEST WHETHER PR3 CAN CREATE THE PROFILE DIRECTORY
+====================================================================
+Because Windows normally creates the user's profile directory during the first roaming-profile sign-in, absence of a PR3 directory is an important troubleshooting clue.
+From the PR3 session, test:
+    mkdir \\<FILESERVER>\PSHARE\PR3
+
+If this returns:
+    Access is denied.
+then investigate Share permissions and NTFS permissions.
+
+If it succeeds, remove the manually-created test directory before
+performing the clean roaming-profile test, or ensure its permissions
+match the intended production configuration.
+
+A simpler write test is:
+    echo test > \\<FILESERVER>\PSHARE\test.txt
+Then remove it:
+    del \\<FILESERVER>\PSHARE\test.txt
+
+
+====================================================================
+10. GROUP POLICY (OPTIONAL) (it Works with computer OU not User OU)
+====================================================================
+A GPO can be used when the roaming profile path is intended to be configured by computer policy.
+Open:
+    Group Policy Management. Create a GPO, for example:
+    Roaming User Profiles
+Link it to the appropriate OU (Comuter OU not user OU).
+
+Policy location:
+    Computer Configuration
+      Policies
+        Administrative Templates
+          System
+            User Profiles
+
+Policy:
+    Set roaming profile path for all users logging onto this computer
+
+Enable it and specify:
+    \\<FILESERVER>\PSHARE\%username%
+
+IMPORTANT:
+If a roaming profile is configured both in Active Directory and through computer-based Group Policy, the computer-based policy takes precedence.
+
+
+====================================================================
+11. APPLY GROUP POLICY
+====================================================================
+On the client:
+    gpupdate /force
+Then verify:
+    gpresult /r
+For a detailed report:
+    gpresult /h C:\Temp\gpresult.html
+Open the HTML report and verify that the roaming-profile GPO is applied.
+
+
+====================================================================
+12. TEST THE ROAMING PROFILE
+====================================================================
+Use test user: PR3
+Test sequence:
+
+1. Sign in to PC-01 as PR3.
+2. Wait for the profile to finish loading.
+3. Create a test desktop item or make a harmless profile setting.
+4. Sign out normally.
+5. Check the profile share.
+6. Confirm that the PR3 profile exists.
+7. Sign in to PC-02 as PR3.
+8. Confirm that the roaming profile is loaded.
+Microsoft's documented test also recommends checking the User Profiles interface and confirming the profile type is shown as Roaming.
+
+
+====================================================================
+13. EXPECTED PROFILE SHARE RESULT
+====================================================================
+After successful deployment, PSHARE should contain a user profile directory, for example:
+    PSHARE
+      |
+      +-- PR3
+      |    +-- NTUSER.DAT
+      |    +-- AppData
+      |    +-- Desktop
+      |    +-- Documents
+      |    +-- ...
+      |
+      +-- User2
+      |
+      +-- User3
+
+The exact directory structure and profile-version naming can vary by Windows version.
+
+
+====================================================================
+14. TROUBLESHOOTING – TEMPORARY PROFILE
+====================================================================
+If PR3 signs in and Windows says: "We've signed you in with a temporary profile"
+do NOT immediately delete the registry ProfileList entries.
+First check the following in order:
+
+A. AD PROFILE PATH
+------------------
+    Get-ADUser PR3 -Properties ProfilePath | Select Name,ProfilePath
+Confirm:
+    \\<FILESERVER>\PSHARE\%username%
+
+B. DNS
+-------
+    nslookup <FILESERVER>
+
+C. SMB
+------
+   Test-NetConnection <FILESERVER> -Port 445
+Expected:
+    TcpTestSucceeded : True
+
+D. GROUP MEMBERSHIP
+-------------------
+    whoami /groups
+Confirm:
+    RoamingGroup
+
+E. SHARE ACCESS
+--------------
+From the PR3 session:
+    \\<FILESERVER>\PSHARE
+
+F. WRITE ACCESS
+---------------
+Test whether PR3 can create a test file/folder.
+
+G. EVENT VIEWER
+---------------
+Open:
+    Event Viewer
+      Applications and Services Logs
+        Microsoft
+          Windows
+            User Profile Service
+              Operational
+
+Look for events generated at the exact time PR3 signs in.
+Also inspect:
+    Windows Logs
+      Application
+Search for:
+    User Profile Service
+
+====================================================================
+14. QUICK DEPLOYMENT SUMMARY
+====================================================================
+1. Create:
+       RoamingGroup
+2. Add:
+       PR3
+3. Create:
+       D:\PSHARE
+4. Share:
+       PSHARE
+5. Configure correct Share + NTFS permissions.
+6. Set PR3:
+       Profile path:
+      \\<FILESERVER>\PSHARE\%username%
+7. On client:
+       gpupdate /force
+8. Test:
+       \\<FILESERVER>\PSHARE
+9. Log out PR3.
+10. Log in PR3 again.
+11. Verify that the profile is stored on the file server.
+12. Test PR3 on another domain-joined PC.
+If PR3 receives a temporary profile, check:
+    - ProfilePath
+    - DNS
+    - SMB/445
+    - RoamingGroup membership
+    - Share permissions
+    - NTFS permissions
+    - User Profile Service event logs
