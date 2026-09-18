@@ -1,0 +1,18 @@
+Import-Module ActiveDirectory
+
+$domain = Get-ADDomain
+$password = ConvertTo-SecureString "ashik.1564" -AsPlainText -Force
+$ou = "OU=TV-User,OU=TechVen,$($domain.DistinguishedName)"
+
+1..10 | ForEach-Object {
+    $username = "u$_"
+
+    New-ADUser `
+        -Name $username `
+        -SamAccountName $username `
+        -UserPrincipalName "$username@$($domain.DNSRoot)" `
+        -Path $ou `
+        -AccountPassword $password `
+        -Enabled $true `
+        -PasswordNeverExpires $true
+}
