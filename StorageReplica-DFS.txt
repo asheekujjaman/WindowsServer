@@ -1,0 +1,129 @@
+=========== DFS Configure  ==============
+Create two vm. Each vm need two volume One for need Minimu 4GB RAM, Data Disk (D:), another for Log Disk (F:) minimum 8GB. It's mendatory. Same volume size in two server.
+Install DFS Role, FSRM, Deduplication and volume Shadow Service (VSS) From file and features.
+
+Method: 1 > this is best
+1. Open Dfs Management
+2. Add a namespace from one server and join this namespace from other server. (actully share path/link that access by user like \\domain.com\namespase_name)
+3. Share one folder as Same name from each server data drive [df01>datadrive>ShareData; dfs02>DataDrive>ShareData]
+4. Add Target folder (add two target one from dfs01 another from dfs02. [now namespase_name hast 2 target folder df01>datadrive>ShareData; and dfs02>DataDrive>ShareData] if dfs01 down dfs02 will work. we config here storage replica at a time one server will working even both server are running)
+5. Enable ABE (Namespace>Rightclick>properties>enable Access Based Enumaretion) and File and storage Service> share>Rightclick share folder>properties>setting>enable ABE
+
+Method: 2
+1. Open Dfs Management
+2. Add a namespace from one server and join this namespace from other server. (actully share path/link that access by user like \\domain.com\namespase_name)
+	> when add dfs namespace server select edit setting select "administrator have full access: other have read and write"; you can also specify derect path of targer folder. otherwise you have to add target folder for yor data folder.
+3. Reduce Referrals Cache (Time, If dfs01 down than user redirect to dfs02). Rigt click namespace> propertes> Referrals> set cache duration. more than 30 seconds.
+5. Enable ABE (Namespace>Rightclick>properties>enable Access Based Enumaretion) and File and storage Service> share>Rightclick share folder>properties>setting>enable ABE
+
+=========== Storage Replica Configure ===============
+
+Step 1:
+Transfer All data in one server that will be srorce in destinations server share has any data that will lose.
+Add Servers to domain and disable IPv6
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\TCPIP6\Parameters" -Name DisabledComponents -Type DWord -Value 255
+
+Create two vm. Each vm need two volume One for need Minimu 4GB RAM, Data Disk (D:), another for Log Disk (F:) minimum 8GB. It's mendatory. Same volume size in two server.
+Allow Firewall TCP 445 (SMB), 5985 (WS-Man); 5445 for iWARP/SMB Direct; ICMP is needed by topology testing
+For Windows Server Storage Replica (SR), the main replication traffic uses:
+	TCP 445 (SMB) — Storage Replica data replication
+	TCP 5445 — Storage Replica management/replication traffic
+	TCP 5985 — WinRM/PowerShell management (HTTP)
+	TCP 5986 — WinRM/PowerShell management (HTTPS)
+	RPC Dynamic Ports — used for some Windows management operations
+
+New-NetFirewallRule -DisplayName "Storage Replica Ports" -Direction Inbound -Protocol TCP -LocalPort 445,5445,5985,5986 -Action Allow
+New-NetFirewallRule -DisplayName "SMB-StorageReplica-445" -Direction Inbound -Protocol TCP -LocalPort 445 -Action Allow; New-NetFirewallRule -DisplayName "StorageReplica-5445" -Direction Inbound -Protocol TCP -LocalPort 5445 -Action Allow; New-NetFirewallRule -DisplayName "WinRM-HTTP-5985" -Direction Inbound -Protocol TCP -LocalPort 5985 -Action Allow; New-NetFirewallRule -DisplayName "WinRM-HTTPS-5986" -Direction Inbound -Protocol TCP -LocalPort 5986 -Action Allow; New-NetFirewallRule -DisplayName "RPC-Endpoint-Mapper-135" -Direction Inbound -Protocol TCP -LocalPort 135 -Action Allow; New-NetFirewallRule -DisplayName "RPC-Dynamic-49152-65535" -Direction Inbound -Protocol TCP -LocalPort 49152-65535 -Action Allow
+
+Step 2:
+Intall role storage replica on both server from roles and features. Restart Servers.
+or by powershell command: Install-WindowsFeature Storage-Replica, FS-FileServer -IncludeManagementTools
+Then Verify: Get-WindowsFeature Storage-Replica
+Test Connectivity from both server
+From dfs02:
+Test-NetConnection DFS01 -Port 445
+Test-NetConnection DFS01 -Port 5985
+From dfs02:
+Test-NetConnection DFS02 -Port 445
+Test-NetConnection DFS02 -Port 5985
+
+Step 3: Test Toplogy
+MD c:\temp 
+Test-SRTopology -SourceComputerName “dfs02.lab.com” -SourceVolumeName “E:” -SourceLogVolumeName “F:” -DestinationComputerName “dfs01” -DestinationVolumeName “E:” -DestinationLogVolumeName “F:” -DurationInMinutes 5 -ResultPath c:\Temp
+
+Step 4: Create Storage Replica partnership
+New-SRPartnership -SourceComputerName DFS01 -SourceRGName DFS01-RG -SourceVolumeName E: -SourceLogVolumeName F: -DestinationComputerName DFS02 -DestinationRGName DFS02-RG -DestinationVolumeName E: -DestinationLogVolumeName F: -LogType Raw -ReplicationMode Synchronous
+
+New-SRPartnership -SourceComputerName "dfs01.lab.com" -SourceRGName "DFS01-RG" -SourceVolumeName "E:" -SourceLogVolumeName "F:" -DestinationComputerName "dfs02.lab.com" -DestinationRGName "DFS02-RG" -DestinationVolumeName "E:" -DestinationLogVolumeName "F:"
+
+==========After one server Down suppose dfs01 down =====
+After down one server you have to perform two process.
+Step 1. Storage Replica failover
+   	DFS02 E: → READ/WRITE
+Step 2. DFS Namespace referral
+   	\\lab.com\Data → DFS02
+
+
+1. Open powershell from dfs02
+Switch direction by bellow cmd
+	Set-SRPartnership -NewSourceComputerName "DFS02" -SourceRGName "DFS02-RG" -DestinationComputerName "DFS01" -DestinationRGName "DFS01-RG" -Force
+
+After it succeeds, run:
+	Get-SRPartnership | Format-List *
+	Get-SRGroup | Format-List Name,ComputerName,ReplicationStatus,IsPrimary,IsMounted,LastInSyncTime
+
+and verify dfs02 E Drive is redable or not. it takes a few times.
+
+2. DFS Namespace Failover 
+> Open DFS Management (dfsmgmt.msc or Server Manager → Tools → DFS Management).
+> Go to Namespaces → \lab.com\Data.
+> Select the required DFS folder.
+> Open Properties → Folder Targets.
+> Select \\DFS01\Data → Disable Folder Target.
+> Select \\DFS02\Data → ensure Folder Target is Enabled.
+> Optional: Set \\DFS02\Data as First among all targets.
+
+===============When dfs01 back again and ready to use===================
+DFS01 Failback. Verify DFS01 is repaired and online.
+1. Verify the Storage Replica partnership is healthy.
+2. Reverse Storage Replica back to DFS01:
+	Set-SRPartnership -NewSourceComputerName "DFS01" -SourceRGName "DFS01-RG" -DestinationComputerName "DFS02" -DestinationRGName "DFS02-RG" -Force
+3. Verify:
+	Get-SRGroup | Format-List Name,ComputerName,ReplicationStatus,IsPrimary,IsMounted
+Confirm DFS01 is IsPrimary : True.
+4. In DFS Management → Folder Targets, enable:
+	\\DFS01\Data
+Disable:
+	\\DFS02\Data
+Optional: Set \\DFS01\Data as First among all targets.
+
+Final Result:
+\\lab.com\Data → \\DFS01\Data → E:\Data
+
+Important: Confirm Storage Replica synchronization is complete before directing users back to DFS01.
+
+
+Check disk inofo Block Size from powershell
+fsutil fsinfo sectorinfo E:
+fsutil fsinfo ntfsinfo E:
+
+
+All Verificatio at once Create script and run
+Write-Host "===== STORAGE REPLICA GROUP =====" -ForegroundColor Cyan
+Get-SRGroup | Format-List Name,ComputerName,State
+
+Write-Host "===== STORAGE REPLICA PARTNERSHIP =====" -ForegroundColor Cyan
+Get-SRPartnership | Format-List SourceComputerName,SourceRGName,DestinationComputerName,DestinationRGName
+
+Write-Host "===== REPLICA STATUS =====" -ForegroundColor Cyan
+Get-SRGroup | Select-Object -ExpandProperty Replicas |
+    Format-List DataVolume,ReplicationMode,ReplicationStatus,
+    NumOfBytesRecovered,NumOfBytesRemaining,LastInSyncTime
+
+Write-Host "===== STORAGE REPLICA SERVICE =====" -ForegroundColor Cyan
+Get-Service StorageReplica
+
+Write-Host "===== STORAGE =====" -ForegroundColor Cyan
+Get-Volume E,F |
+    Select-Object DriveLetter,FileSystem,Size,SizeRemaining
+
