@@ -1,0 +1,247 @@
+========================================================================
+  DC01 - AUTHORITATIVE TIME SERVER SETUP GUIDE
+  Configure DC01 to sync from Public NTP + All Domain Clients from DC01
+========================================================================
+
+Prepared for: Windows Server Active Directory Environment
+Goal        : DC01 (PDC Emulator) syncs time from public internet NTP
+              servers. All domain-joined clients/servers automatically
+              sync time from DC01 through the domain hierarchy.
+
+------------------------------------------------------------------------
+SECTION 0: IMPORTANT PRE-CHECK
+------------------------------------------------------------------------
+
+Time authority MUST be configured on the Domain Controller holding the
+PDC Emulator FSMO role. This is the default time source for the whole
+domain. If DC01 is not the PDC Emulator, either:
+   (a) Configure the actual PDC Emulator instead, OR
+   (b) Transfer the PDC Emulator role to DC01
+
+--- CMD: Check which DC holds the PDC Emulator role ---
+    netdom query fsmo
+
+--- GUI: Check / Transfer PDC Emulator role ---
+    1. Open "Active Directory Users and Computers"
+    2. Right-click the domain name > "Operations Masters"
+    3. Click the "PDC" tab
+    4. It shows the current holder. To transfer to DC01:
+       - Connect to DC01 first (right-click domain root >
+         "Change Domain Controller" > select DC01)
+       - Go back to Operations Masters > PDC tab > click "Change"
+
+------------------------------------------------------------------------
+SECTION 1: CONFIGURE DC01 TO SYNC FROM PUBLIC NTP (CMD METHOD)
+------------------------------------------------------------------------
+
+Run Command Prompt or PowerShell AS ADMINISTRATOR on DC01.
+
+STEP 1.1 - Set external NTP servers as time source
+------------------------------------------------------
+    w32tm /config /manualpeerlist:"0.pool.ntp.org,0x8 1.pool.ntp.org,0x8 2.pool.ntp.org,0x8 3.pool.ntp.org,0x8" /syncfromflags:manual /reliable:yes /update
+
+    Notes:
+    - ",0x8" = forces CLIENT mode polling (required, do not omit)
+    - "/reliable:yes" = marks DC01 as a reliable source for the domain
+    - Alternative NTP servers you can use instead of pool.ntp.org:
+          time.windows.com
+          time.google.com
+          time.cloudflare.com
+
+STEP 1.2 - Restart the Windows Time service
+------------------------------------------------------
+    net stop w32time
+    net start w32time
+
+STEP 1.3 - Force immediate resync (test)
+------------------------------------------------------
+    w32tm /resync /force
+
+STEP 1.4 - Verify configuration
+------------------------------------------------------
+    w32tm /query /status
+    w32tm /query /peers
+    w32tm /query /configuration
+
+    What to check:
+    - "Source" should show one of your NTP servers (not "Local CMOS Clock")
+    - "Stratum" should be a low number (2-4 typically)
+    - No errors in the peer list
+
+------------------------------------------------------------------------
+SECTION 2: CONFIGURE DC01 TO SYNC FROM PUBLIC NTP (GUI METHOD)
+------------------------------------------------------------------------
+
+NOTE: Windows does NOT provide a full native GUI for w32time peer
+configuration (registry-level settings only apply the same commands
+above internally). The closest GUI option is the basic date/time
+Internet Time tab, but it has LIMITED functionality on a Domain
+Controller and is not fully equivalent to the CMD method. It is shown
+below for reference; using it will not set /reliable:yes or client mode.
+
+STEP 2.1 - Open Date and Time settings
+------------------------------------------------------
+    1. Right-click the clock in the taskbar > "Adjust date/time"
+       OR
+    1. Control Panel > Clock and Region > Date and Time
+
+STEP 2.2 - Internet Time tab
+------------------------------------------------------
+    1. Click the "Internet Time" tab
+    2. Click "Change settings..."
+    3. Check "Synchronize with an Internet time server"
+    4. Enter server: time.windows.com (or time.google.com)
+    5. Click "Update now" to test
+    6. Click OK
+
+IMPORTANT: This GUI tab is often disabled/greyed out on Domain
+Controllers because DCs manage time via Group Policy and the domain
+hierarchy by design. If greyed out, you MUST use the CMD method in
+Section 1 (this is expected and normal on a DC).
+
+STEP 2.3 - Recommended: Use Registry Editor to verify (view only)
+------------------------------------------------------
+    1. Run "regedit"
+    2. Navigate to:
+       HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\W32Time\Parameters
+    3. Check the "NtpServer" value matches what you configured
+    4. Navigate to:
+       HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\W32Time\Config
+    5. Check "AnnounceFlags" = 5 (this means "reliable time source")
+
+    Do NOT edit these values directly in GUI unless you know the exact
+    syntax - use the CMD method in Section 1 to set them safely.
+
+------------------------------------------------------------------------
+SECTION 3: FIREWALL REQUIREMENTS
+------------------------------------------------------------------------
+
+DC01 needs to reach the internet AND serve internal clients.
+
+--- CMD: Check/Allow NTP (UDP 123) via Windows Firewall ---
+    netsh advfirewall firewall show rule name="Windows Time UDP-In"
+
+    (If the rule does not exist or is disabled, create it:)
+    netsh advfirewall firewall add rule name="Allow NTP In" dir=in action=allow protocol=UDP localport=123
+    netsh advfirewall firewall add rule name="Allow NTP Out" dir=out action=allow protocol=UDP remoteport=123
+
+--- GUI: Check/Allow NTP (UDP 123) via Windows Firewall ---
+    1. Open "Windows Defender Firewall with Advanced Security"
+    2. Click "Inbound Rules" (left pane)
+    3. Look for "Windows Time UDP-In" (should be Enabled, green check)
+       - If not present, click "New Rule..." > Port > UDP > Specific
+         local port: 123 > Allow the connection > apply to Domain
+         profile > Name it "Allow NTP In"
+    4. Click "Outbound Rules" and repeat, allowing remote port 123 out
+       (needed so DC01 can reach public NTP servers on the internet)
+
+------------------------------------------------------------------------
+SECTION 4: DOMAIN CLIENTS / MEMBER SERVERS - NO ACTION NEEDED (DEFAULT)
+------------------------------------------------------------------------
+
+By default, ALL domain-joined computers automatically follow the
+domain time hierarchy (called NT5DS):
+
+    Workstations/Member Servers
+            --> sync from their authenticating Logon DC
+                    --> which syncs from the PDC Emulator (DC01)
+                            --> which syncs from public NTP (Section 1)
+
+This is automatic. You do NOT need to touch client machines under normal circumstances.
+
+--- CMD: Verify a client is using domain hierarchy correctly ---
+    w32tm /query /status
+    w32tm /query /source
+
+    Expected result: "Source" shows the name of a Domain Controller
+    (NOT "Local CMOS Clock" and NOT a public NTP name directly).
+
+--- GUI: Verify on a client ---
+    1. Right-click clock > "Adjust date/time"
+    2. Internet Time tab is normally disabled on domain clients
+       (this is expected - it means the client is correctly following
+       the domain hierarchy instead of an internet server directly)
+
+------------------------------------------------------------------------
+SECTION 5: FIXING A CLIENT THAT WAS MANUALLY MISCONFIGURED
+------------------------------------------------------------------------
+
+If a client/server was previously set to sync directly with an
+external NTP server (bypassing the domain hierarchy), reset it:
+
+--- CMD: Reset client to follow domain hierarchy ---
+    w32tm /config /syncfromflags:domhier /update
+    net stop w32time
+    net start w32time
+    w32tm /resync /force
+
+--- GUI: Reset client (partial - CMD is more reliable) ---
+    1. Right-click clock > "Adjust date/time" > Internet Time tab
+    2. Click "Change settings..."
+    3. UNCHECK "Synchronize with an Internet time server"
+    4. Click OK
+    5. Restart the "Windows Time" service:
+       - Open "Services" (services.msc)
+       - Find "Windows Time"
+       - Right-click > Restart
+    (Note: This GUI method alone does not fully force domhier mode -
+     run the CMD commands above for a complete reset)
+
+------------------------------------------------------------------------
+SECTION 6: OTHER DOMAIN CONTROLLERS (IF ANY)
+------------------------------------------------------------------------
+
+Any additional DCs besides DC01 will automatically sync from the PDC Emulator (DC01) via NT5DS - no manual configuration required.
+To verify on another DC:
+    w32tm /query /status
+    w32tm /query /source
+
+Expected: Source = DC01 (or its FQDN)
+
+
+
+-----------------------------------------------------------------------
+Non Domain Join PC
+-----------------------------------------------------------------------
+w32tm /config /manualpeerlist:"192.168.1.10,0x8" /syncfromflags:manual /update
+net stop w32time
+net start w32time
+w32tm /resync /force
+
+------------------------------------------------------------------------
+SECTION 7: TROUBLESHOOTING CHECKLIST
+------------------------------------------------------------------------
+
+[ ] On DC01: w32tm /query /status shows Source = external NTP server
+[ ] On DC01: Stratum number is low (2-4)
+[ ] On clients: w32tm /query /source shows a DC name, not CMOS/external
+[ ] UDP port 123 open outbound on DC01 (to reach internet)
+[ ] UDP port 123 open inbound/outbound internally (DC <-> clients)
+[ ] Check Event Viewer on problem machines:
+       Applications and Services Logs > Microsoft > Windows > Time-Service > Operational
+[ ] If a machine has drifted more than 5 minutes, Kerberos
+    authentication will start failing (default max skew = 5 min).
+    Manually set the clock close to correct time first, THEN let
+    w32time take over and fine-tune it.
+[ ] Large jumps can trigger MaxPosPhaseCorrection/MaxNegPhaseCorrection
+    limits (default 48 hours) - if a client's clock is wildly wrong,
+    you may need to correct it manually before w32time will accept
+    syncing it.
+
+------------------------------------------------------------------------
+SECTION 8: USEFUL COMMAND REFERENCE (QUICK CHEAT SHEET)
+------------------------------------------------------------------------
+
+    netdom query fsmo                       Check PDC Emulator holder
+    w32tm /query /status                    Show current sync status
+    w32tm /query /peers                     Show configured NTP peers
+    w32tm /query /configuration             Show full w32time config
+    w32tm /query /source                    Show current time source
+    w32tm /resync /force                    Force immediate resync
+    net stop w32time && net start w32time   Restart time service
+    w32tm /config /syncfromflags:domhier /update   Reset client to
+                                             domain hierarchy default
+
+========================================================================
+  END OF GUIDE
+========================================================================
