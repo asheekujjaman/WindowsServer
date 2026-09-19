@@ -1,0 +1,261 @@
+================================================================================
+ 		ENTERPRISE FILE SERVICES SOLUTION
+ DFS NAMESPACE + DFS REPLICATION + VSS + FSRM + DATA DEDUPLICATION
+================================================================================
+ Prepared for : lab.com
+ Namespace    : \\lab.com\OfficeData
+ Share        : \\lab.com\OfficeData\CHQDATA
+ Target 1     : dfs01.lab.com   10.10.10.71   E:\DATA
+ Target 2     : dfs02.lab.com   10.10.10.72   E:\DATA
+ Domain Ctrl  : dc01.lab.com    10.10.10.10
+================================================================================
+
+--------------------------------------------------------------------------------
+SECTION 0 - SOLUTION OVERVIEW / ARCHITECTURE
+--------------------------------------------------------------------------------
+Goal: Provide a highly available, self-healing, quota-controlled, versioned, space-efficient file share for the enterprise using a single logical namespace path that clients always use, regardless of which physical server answers.
+
+    Clients  --->  \\lab.com\OfficeData\CHQDATA   (DFS Namespace - logical path)
+                          |
+              -------------------------------
+              |                             |
+        dfs01.lab.com                 dfs02.lab.com
+        10.10.10.71                   10.10.10.72
+        E:\DATA  <----DFS-R (multi-master replication)---->  E:\DATA
+              |                             |
+        - VSS (Shadow Copies)         - VSS (Shadow Copies)
+        - FSRM (Quotas/Screens)       - FSRM (Quotas/Screens)
+        - Data Deduplication          - Data Deduplication
+Layers:
+ 1. DFS Namespace (DFSN)  -> Path abstraction + client redirection/failover
+ 2. DFS Replication (DFSR)-> Multi-master file sync between dfs01 & dfs02
+ 3. VSS (Shadow Copies)   -> Point-in-time recovery / "Previous Versions"
+ 4. FSRM                  -> Quotas, file screening, storage reports, alerts
+ 5. Data Deduplication    -> Disk space optimization on E:\DATA
+Domain: lab.com, DC01 (10.10.10.10) provides AD DS + DNS (required for domain-based namespace and Kerberos authentication of DFSR/FSRM).
+
+--------------------------------------------------------------------------------
+SECTION 1 - PRE-DEPLOYMENT CHECKLIST
+--------------------------------------------------------------------------------
+[ ] dfs01 and dfs02 are domain-joined to lab.com
+[ ] Static IPs configured: dfs01=10.10.10.71 / dfs02=10.10.10.72
+[ ] DNS A records exist on DC01 for dfs01.lab.com and dfs02.lab.com
+[ ] Time sync (w32tm) matches DC01 on both servers (Kerberos tolerance)
+[ ] E: volume created on both servers [Same Storage & Block Size 64k], formatted NTFS (ReFS NOT supported for Deduplication+DFSR together in most cases - use NTFS), 64K allocation unit size recommended for Dedup performance on data volumes
+[ ] Folder E:\DATA exists on both dfs01 and dfs02
+[ ] Firewall: allow "DFS Management", "File and Printer Sharing", and "DFS Replication" predefined rule groups (inbound) between dfs01/dfs02
+[ ] Service account / Domain Admin (or delegated) rights available to run DFS Management console and PowerShell cmdlets
+[ ] Capacity planning done: staging folder sizing, dedup savings estimate, shadow copy storage area sizing (see relevant sections below)
+[ ] Backup solution confirmed to support DFSR + Dedup aware backups (VSS writer "System Writer" / dedup-aware backup agent)
+
+--------------------------------------------------------------------------------
+SECTION 2 - INSTALL REQUIRED ROLES & FEATURES
+--------------------------------------------------------------------------------
+Open server manger and install bellow role. those are under File and Storage Services
+DFS-Namespace, DFS-Replication, Resource-Manager, Data-Deduplication, File Server VSS
+
+OR Install by Powershell
+Run on BOTH dfs01 and dfs02 (PowerShell, elevated):
+    Install-WindowsFeature FS-DFS-Namespace, FS-DFS-Replication, `
+        FS-Resource-Manager, FS-Data-Deduplication, RSAT-DFS-Mgmt-Con, `
+        FSRM-Infrastructure -IncludeManagementTools
+
+Verify:
+    Get-WindowsFeature FS-DFS-Namespace, FS-DFS-Replication, `
+        FS-Resource-Manager, FS-Data-Deduplication
+
+--------------------------------------------------------------------------------
+SECTION 3 - CREATE SHARED FOLDER (Both Servers)
+--------------------------------------------------------------------------------
+3.1 Create the shared folder on both servers first (identical share/NTFS permissions on both targets is MANDATORY for DFS-R to behave correctly): On dfs01 AND dfs02:
+ 1. Open File Explorer, go to E:\DATA.
+ 2. Right-click the new "CHQDATA" folder > Properties > "Sharing" tab > "Advanced Sharing".
+ 3. Check "Share this folder", Share name: CHQDATA > click "Permissions".
+ 4. Set share permissions: Domain Admins = Full Control, Authenticated Users = Change (or Read, per your policy) > OK > OK.
+	Or Everyone full permission
+ 5. Go to the "Security" tab > Edit > Add > type the groups (e.g. LAB\Domain Admins, LAB\CHQ-Staff) > assign Modify/Full Control as
+    appropriate > Apply > OK. (Set Permission as your requirement)
+ 6. Repeat steps 1-6 identically on the second server.
+
+
+--------------------------------------------------------------------------------
+SECTION 3 - CREATE THE DFS NAMESPACE (DFS Management Console)
+--------------------------------------------------------------------------------
+ 1. Open "DFS Management" (Server Manager > Tools > DFS Management, or search Start Menu for "DFS Management").
+ 2. In the left tree, right-click "Namespaces" > "New Namespace...".
+ 3. In the wizard, "Server" field: type dfs01.lab.com > Next.
+ 4. "Name" field: type OfficeData > (this becomes \\lab.com\OfficeData) Click "Edit Settings" if you want to customize the local path/share
+    permissions, otherwise Next.(ser permission administrator have full access and other have read and write. don't warry this is share permission for (dfs root folder))
+ 5. Namespace Type screen: select "Domain-based namespace" and check "Enable Windows Server 2008 mode" > Next.
+ 6. Review settings > click "Create" > Close.
+ 7. In the left tree you'll now see "\\lab.com\OfficeData" under Namespaces. Right-click it > "Add Namespace Server...".
+ 8. Type dfs02.lab.com > OK. (This gives the namespace itself HA - both servers can now answer namespace referrals.)
+ 9. Right-click "\\lab.com\OfficeData" > "New Folder...".
+10. Folder name: CHQDATA.
+11. Click "Add" under Folder Targets > type \\dfs01.lab.com\CHQDATA > OK.
+12. Click "Add" again > type \\dfs02.lab.com\CHQDATA > OK.
+13. A prompt will ask "Do you want to enable replication of this folder using DFS Replication?" - click "Yes" (this launches the Replication wizard directly - continue into Section 4 below). If you accidentally click No, right-click the CHQDATA folder later and choose "Replicate Folder..." to launch it manually.
+
+
+--------------------------------------------------------------------------------
+SECTION 4 - CONFIGURE DFS REPLICATION (Replicate Folder Wizard)
+--------------------------------------------------------------------------------
+This continues directly from Section 3 step 13 (or launch via right-click CHQDATA folder > "Replicate Folder...").
+ 1. "Replication Group and Replicated Folder Name" screen: accept the defaults (e.g. Replication group name "OfficeData\CHQDATA") > Next.
+ 2. "Replication Eligibility" screen: confirms both dfs01 and dfs02 targets are eligible > Next.
+ 3. "Primary Member" screen: select dfs01.lab.com (the server holding the authoritative/original copy of the data) > Next.
+ 4. "Topology Selection" screen: choose "Full Mesh" (fine for 2 members; scales automatically if you add more later) > Next.
+ 5. "Replication Group Schedule and Bandwidth" screen:
+       - Choose "Replicate continuously using the specified bandwidth"
+      *- Bandwidth: "Full" (for LAN) or a throttled value (for WAN links)
+       - Alternatively choose "Replicate during the specified days and times only" and click "Edit Schedule" to build a custom calendar
+       > Next.
+ 6. "Review Settings and Create Replication Group" screen: verify > click "Create".
+ 7. Confirmation screen shows tasks completed > click Close.
+ 8. A popup explains that replication won't start until AD replicates the changes to all domain controllers - click OK.
+ 
+4.1 SET STAGING FOLDER QUOTA (important for large data sets):
+ 1. In DFS Management, click "Replication" in the left tree > select the "OfficeData\CHQDATA" replication group.
+ 2. Click the "Memberships" tab.
+ 3. Right-click the dfs01 membership row > "Properties".
+ 4. Go to the "Staging" tab > set "Quota (MB)" to e.g. 32768 (32 GB, or size to your 32 largest files) > OK.
+ 5. Repeat for the dfs02 membership row.
+ 
+4.2 SET CONFLICT-AND-DELETED FOLDER QUOTA:
+ 1. Same Properties window as above > "Advanced" tab > raise "Conflict and Deleted quota (MB)" from the default (660) to e.g. 4096 > OK.
+ 2. Repeat on the dfs02 membership.
+ 
+4.3 MONITOR REPLICATION HEALTH:
+ 1. Right-click the "OfficeData\CHQDATA" replication group > "Create Diagnostic Report...".
+ 2. Choose "Health Report" > Next > select both members > Next.
+ 3. Choose a save location for the HTML report > Finish > "View the health report when the wizard is closed" stays checked > OK.
+ 4. The report opens in your browser showing backlog counts, bandwidth savings, and any errors per member - review this weekly.
+
+
+--------------------------------------------------------------------------------
+SECTION 5 - CONFIGURE VSS / SHADOW COPIES (Computer Management)
+--------------------------------------------------------------------------------
+Repeat on BOTH dfs01 and dfs02 - stagger the scheduled times between the two servers (see step 6 below) so both nodes don't snapshot at the exact same moment. 
+ 1. Open "Computer Management" (right-click Start > Computer Management, or Server Manager > Tools).
+ 2. [don't follow this] Expand "Storage" > click "Disk Management" is NOT the right place - instead right-click "This PC" in File Explorer, or use the direct route below.
+ 3. Easier route: Open File Explorer > right-click drive "E:" > "Configure Shadow Copies...".
+ 4. In the "Shadow Copies" window, select volume E: from the list.
+ 5. Click "Settings...".
+ 6. "Storage area" dropdown: select a volume to hold snapshots (ideally a separate volume, e.g. F:, to avoid competing with live data I/O).
+ 7. Set "Maximum size" - select "Limit to" and enter e.g. 200000 MB (200 GB) as a starting point; monitor and adjust based on change rate. (10% of Storage.)
+ 8. Click "Schedule...".
+ 9. Click "New" to add a schedule entry.
+10. Set the task to run daily at 07:00, then click "New" again and add a second entry for 12:00 (twice-daily is a common enterprise baseline). On dfs02, use 07:20 and 12:20 instead (20-minute offset from dfs01).
+11. Click OK to save the schedule, OK to save settings.
+12. Back in the "Shadow Copies" window, click "Enable" (if not already enabled it will prompt to create an immediate first shadow copy - click Yes).
+13. Click OK to close.
+ 
+5.1 VERIFY / TEST RESTORE (end-user experience):
+ 1. In File Explorer, right-click any file or folder inside
+    \\lab.com\OfficeData\CHQDATA > Properties.
+ 2. Click the "Previous Versions" tab.
+ 3. You should see a list of restore points with timestamps - select one and click "Restore" (or "Open" to preview) to confirm it works.
+ 
+ 
+--------------------------------------------------------------------------------
+SECTION 6 - CONFIGURE FSRM (File Server Resource Manager console)
+--------------------------------------------------------------------------------
+Repeat on BOTH dfs01 and dfs02 - FSRM settings are local to each server and are NOT replicated by DFSR, so build them identically on both (or export/ import as shown at the end of this section).
+ 
+6.1 GLOBAL EMAIL SETTINGS (do this first, needed for alerts/reports):
+ 1. Open "File Server Resource Manager" (Server Manager > Tools).
+ 2. Right-click the root "File Server Resource Manager (Local)" > "Configure Options...".
+ 3. "Email Notifications" tab: enter SMTP server name (e.g. smtp.lab.com), "Default 'From' e-mail address" and "Default administrator recipients" (e.g. fsrm-alerts@lab.com) > click "Send Test E-mail" to confirm > OK.
+ 
+6.2 CREATE A QUOTA TEMPLATE:
+ 1. In the left tree, expand "Quota Management" > right-click "Quota Templates" > "Create Quota Template...".
+ 2. Template name: CHQDATA-50GB-Soft.
+ 3. "Space limit": 50 GB, select "Soft quota" (alerts only, does not block writes) or "Hard quota" (blocks writes once reached limit) per your policy.
+ 4. Under "Notification thresholds" click "Add...".
+ 5. Set "Generate notification when usage reaches" 85% > check the "E-mail Message" tab > check "Send e-mail to the following administrators" and enter your admin address > customize subject/body if desired > OK.
+ 6. Click "Add..." again for a 100% threshold with a similar email alert > OK.
+ 7. Click OK to save the template.
+ 
+6.3 APPLY THE QUOTA TO THE FOLDER:
+ 1. Left tree > "Quota Management" > "Quotas" > right-click > "Create Quota...".
+ 2. "Quota path": browse to E:\DATA
+ 3. Select "Derive properties from this quota template" and pick "CHQDATA-50GB-Soft" > click "Create".
+ 4. Repeat this exact quota (path + template) on dfs02.
+ 
+6.4 CREATE A FILE SCREEN (block unwanted file types):
+ 1. Left tree > "File Screening Management" > right-click "File Groups" > "Create File Group...".
+ 2. Name: Blocked-Files-CHQ.
+ 3. Under "Files to include", add patterns: *.mp3, *.mp4, *.exe, *.mkv, *.iso, *.avi > click "Create".
+ 4. Right-click "File Screen Templates" > "Create File Screen Template...".
+ 5. Name: Block-Media-Exec. Screening type: "Active screening" (blocks in real time). Under file groups, check "Blocked-Files-CHQ".
+ 6. "E-mail Message" tab: enable and configure an alert like in 6.2 > OK.
+ 7. Left tree > "File Screens" > right-click > "Create File Screen...".
+ 8. "File screen path": E:\DATA
+ 9. Select "Derive properties from this file screen template" > pick "Block-Media-Exec" > "Create".
+10. Repeat on dfs02.
+ 
+6.5 CREATE A SCHEDULED STORAGE REPORT:
+ 1. Left tree > right-click "Storage Reports Management" > "Schedule a New Report Task...".
+ 2. "Settings" tab > click "Add" folder > browse to E:\DATA > OK.
+ 3. Check the report types you want: "Large Files", "Duplicate Files", "File Screening Audit", "Quota Usage".
+ 4. "Delivery" tab: check "Send reports to the following administrators" and enter your distribution Email list address.
+ 5. "Schedule" tab: click "Create Schedule" > "New" > set Weekly, Monday, 06:00 AM > OK > OK.
+ 6. Repeat on dfs02 (or point one central report at both servers' UNC paths if you prefer a single consolidated report).
+ 
+6.6 KEEP BOTH SERVERS IN SYNC:
+ 1. In FSRM on dfs01: left tree > "Quota Management" > right-click "Quota Templates" > "Export List..." > save the XML file.
+ 2. Copy that XML file to dfs02.
+ 3. On dfs02: right-click "Quota Templates" > "Import List..." > select the XML file > choose templates to import > OK.
+ 4. Repeat the same Export/Import steps for "File Screen Templates" so both servers always carry identical policy definitions.
+ 
+ 
+--------------------------------------------------------------------------------
+SECTION 7 - ENABLE DATA DEDUPLICATION (Server Manager)
+--------------------------------------------------------------------------------
+Repeat on BOTH dfs01 and dfs02. 
+ 1. Open Server Manager > click "File and Storage Services" in the left tree > click "Volumes".
+ 2. In the Volumes list, right-click the "E:" volume (labeled DATA) >  "Configure Data Deduplication...".
+ 3. In the dialog, set "Data deduplication" dropdown to "General purpose file server" (file level deduplication).
+ 4. Set "Deduplicate files older than (in days):" to 3 (keeps recently edited files untouched, reduces friction with active replication).
+ 5. Click "Set Deduplication Schedule...".
+ 6. Under the "Background optimization" section it runs automatically; for a custom throughput schedule, uncheck "Enable background optimization" 
+and instead check "Enable throughput optimization", set start time (e.g. 22:00) and duration (e.g. 6 hours), check the days of week > OK. 
+(On dfs02, use a start time offset by 1 hour, e.g. 23:00, so both servers are not optimizing simultaneously.)
+ 7. Back in the Configure Data Deduplication dialog, under "Exclude folders" you can add specific paths to exclude if needed 
+(DFSR staging/private folders under "System Volume Information\DFSR" are system-protected and excluded automatically in normal use - do not relocate DFSR staging into your dedup-scanned data path) > click OK.
+ 8. Repeat steps 1-7 on dfs02.
+ 
+7.1 VERIFY SAVINGS:
+ 1. Server Manager > File and Storage Services > Volumes.
+ 2. Select the E: volume - the details pane at the bottom shows "Deduplication Rate" and "Deduplication Savings" once at least one optimization job has completed.
+ 3. Alternatively: right-click the volume > "Data Deduplication" related context options, or check Task Scheduler Library >
+    Microsoft > Windows > Deduplication for job run history.
+ 
+ 
+--------------------------------------------------------------------------------
+SECTION 8 - ONGOING MONITORING VIA GUI (WEEKLY)
+--------------------------------------------------------------------------------
+ - DFS Management console > right-click replication group > "Create Diagnostic Report" > Health Report (see Section 4.3).
+ - Computer Management > "Configure Shadow Copies" on E: to confirm recent snapshots are listed and storage area isn't full.
+ - File Server Resource Manager > "Storage Reports Management" > review the last scheduled report, or right-click > "Generate Reports Now" for an on-demand check.
+ - Server Manager > File and Storage Services > Volumes > check Deduplication Rate/Savings trend on E:.
+ - Event Viewer > Applications and Services Logs > DFS Replication (and separately, Microsoft > Windows > Deduplication > Operational) for warnings/errors.
+ 
+ 
+--------------------------------------------------------------------------------
+SECTION 9 - GO-LIVE VALIDATION (GUI-BASED TESTS)
+--------------------------------------------------------------------------------
+[ ] Map \\lab.com\OfficeData\CHQDATA from a client PC and confirm it opens
+[ ] Create a test file on dfs01's E:\DATA, confirm it appears on dfs02 within the expected window
+[ ] Create a test file on dfs02, confirm it appears back on dfs01
+[ ] Disable the network adapter on dfs01 (or stop the DFS service), confirm the client is still served by dfs02 via the same namespace path
+[ ] Right-click a test file > Properties > Previous Versions shows at least one restore point
+[ ] Fill a test folder past the 85% quota threshold, confirm the email alert arrives
+[ ] Attempt to save a .exe into CHQDATA from a client, confirm it is blocked by the file screen
+[ ] Check Server Manager > Volumes > E: shows a non-zero Deduplication Savings value after the first scheduled optimization run
+[ ] Open the DFS Replication Health Report and confirm backlog = 0
+[ ] Confirm the weekly FSRM storage report email was received
+ 
+================================================================================
+ END OF DOCUMENT
+================================================================================
