@@ -208,6 +208,13 @@ net stop w32time
 net start w32time
 w32tm /resync /force
 
+#If Multiple server
+w32tm /config /manualpeerlist:"192.168.1.10,0x8 10.10.10.11,0x8" /syncfromflags:manual /update
+net stop w32time
+net start w32time
+w32tm /resync /force
+
+
 ------------------------------------------------------------------------
 SECTION 7: TROUBLESHOOTING CHECKLIST
 ------------------------------------------------------------------------
