@@ -1,0 +1,74 @@
+USB ACCESS CONTROL – GROUP POLICY
+=================================
+1. AD STRUCTURE
+---------------
+OU:    CHQIT
+Security Groups:
+    USBEnable  → USB storage allowed
+    USBDisable → USB storage blocked
+
+2. USER GROUP MEMBERSHIP
+------------------------
+USBEnable:   Users who can access USB storage.
+USBDisable:  Users who cannot access USB storage.
+
+3. GPO
+------
+GPO Name:    GPO-USB-Disable
+Linked To:   CHQIT OU
+Security Filtering:    USBDisable
+
+4. GPO SETTING
+--------------
+User Configuration
+    ↓
+Administrative Templates
+    ↓
+System
+    ↓
+Removable Storage Access
+    ↓
+All Removable Storage classes: Deny all access
+    ↓
+Enabled
+
+5. GPO PERMISSIONS
+------------------
+USBDisable:
+    ✓ Read
+    ✓ Apply group policy
+
+USBEnable:
+    No USB-blocking GPO applied.
+
+#Next after enable USB permission for user
+	1. gpupdate /force  (Sing out and Sing in. if not work)
+	cmd Ran as administrator
+	1. RD /S /Q "%WinDir%\System32\GroupPolicy"
+	2. RD /S /Q "%WinDir%\System32\GroupPolicyUsers"
+	3. gpupdate /force
+
+6. RESULT
+---------
+USBEnable:
+    USB/Pendrive → ALLOWED
+
+USBDisable:
+    USB/Pendrive → BLOCKED
+
+
+7. APPLY POLICY
+---------------
+gpupdate /force
+
+Then:
+    Sign out
+    Sign in again
+
+
+8. VERIFY POLICY
+----------------
+gpresult /r
+
+Detailed report:
+    gpresult /h C:\Temp\gpresult.html
