@@ -177,8 +177,28 @@ On-Prem Server (Windows Server 2016+)
 5. If tiering is On, tiered files show a small cloud icon overlay in File Explorer; double-clicking recalls them transparently from Azure.
 
 ---
+## 7. sync now cloud to onprem (by default it sync automatic 24h interval)
 
-## 6. Monitoring (GUI)
+**Run this on azure portal powershell **
+> ```
+> #Check Details (Cloudendpoing number)
+>Get-AzStorageSyncCloudEndpoint `
+>  -ResourceGroupName "test-rg" `
+>  -StorageSyncServiceName "az-file-sync" `
+>  -SyncGroupName "az-sync-group"
+> ```
+
+> ```
+>#Than Run this for sync now (cloud to onprem)
+>Invoke-AzStorageSyncChangeDetection `
+>  -ResourceGroupName "test-rg" `
+>  -StorageSyncServiceName "az-file-sync" `
+>  -SyncGroupName "az-sync-group" `
+>  -CloudEndpointName "b8a25d85-d7c4-4eb0-b90a-25b6f35d24eb"
+> ```
+---
+
+## 7. Monitoring (GUI)
 
 1. Go to **Storage Sync Service** → left menu → **Diagnose and solve problems** for built-in health checks
 2. Left menu → **Monitoring → Diagnostic settings** → **+ Add diagnostic setting** → send logs to a **Log Analytics workspace** for alerting/dashboards
@@ -190,26 +210,6 @@ On-Prem Server (Windows Server 2016+)
 
 ---
 
-## 7. Production Hardening (GUI)
-
-| Area | Where in Portal |
-|---|---|
-| Restrict network access | Storage Account → **Networking** → set to **Selected networks**, add server's public IP or VNet |
-| Private Endpoint | Storage Account → **Networking → Private endpoint connections → + Private endpoint** (also create one for the Storage Sync Service resource) |
-| Backup / Snapshots | Storage Account → File share `onpremshare` → **Backup** → **Configure backup** (creates/uses a Recovery Services Vault) |
-| Redundancy | Only settable at creation; to change, Storage Account → **Redundancy** blade (some tiers require migration) |
-| AD DS auth for SMB ACLs | Storage Account → **File shares → Active Directory: Configure** (or use `AzFilesHybrid` PowerShell module — GUI doesn't fully cover this yet, script required) |
-| Alerts | Storage Sync Service → **Monitoring → Alerts → + Create alert rule** (e.g. alert on sync errors, low free space) |
-
-> ⚠️ AD DS join for the storage account (for NTFS-permission-aware SMB) does not have a full GUI path — this is one of the few places a script is required:
-> ```powershell
-> Install-Module -Name AzFilesHybrid -Force
-> Join-AzStorageAccountForAuth -ResourceGroupName "rg-afs-demo" `
->   -StorageAccountName "stafsyncdemo001" `
->   -DomainAccountType "ComputerAccount"
-> ```
-
----
 
 ## 8. Networking Requirements
 
@@ -225,23 +225,6 @@ Allow outbound **HTTPS (443)** from the server to:
 If a proxy is required, this has no GUI equivalent — set via command:
 ```
 netsh winhttp set proxy proxy-server="http://proxyserver:port"
-```
-
----
-
-## 9. Troubleshooting (GUI-first)
-
-| Symptom | Where to check / fix |
-|---|---|
-| Server registration fails | Server Registration wizard error message; verify time sync and outbound HTTPS |
-| Sync not starting | Portal → Sync group → server endpoint → check **Health** status and error details |
-| Files not tiering | Portal → server endpoint → confirm **Cloud Tiering = On** and check **Volume free space %** setting |
-| Slow initial sync | Expected for large datasets; check progress under server endpoint → **Cloud tiering status** |
-| Access denied on tiered files | Confirm the **Azure File Sync** Windows service is running (Services.msc → "StorageSync Agent") |
-
-If GUI diagnostics aren't enough, one command-line check is useful:
-```
-Get-WinEvent -LogName "Microsoft-FileSync-Agent/Operational" -MaxEvents 50
 ```
 
 ---
