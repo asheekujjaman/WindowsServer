@@ -177,7 +177,7 @@ On-Prem Server (Windows Server 2016+)
 5. If tiering is On, tiered files show a small cloud icon overlay in File Explorer; double-clicking recalls them transparently from Azure.
 
 ---
-## 7. sync now cloud to onprem (by default it sync automatic 24h interval)
+## 6. sync now cloud to onprem (by default it sync automatic 24h interval)
 
 **Run this on azure portal powershell **
 > ```
@@ -229,7 +229,7 @@ netsh winhttp set proxy proxy-server="http://proxyserver:port"
 
 ---
 
-## 10. Summary Checklist
+## 9. Summary Checklist
 
 - [ ] Storage Account created (Portal)
 - [ ] Azure File Share `onpremshare` created (Portal)
