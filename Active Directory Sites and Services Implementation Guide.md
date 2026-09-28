@@ -1,22 +1,5 @@
 # Active Directory Sites and Services Implementation Guide
 
-## 1. Initial Scenario Details Provided
-
-* **Site 1 (CHQ - Central HQ):**
-  * Subnet: `192.168.1.0/24`
-  * Domain Controller: `chq1.domain.local`
-  * IP Address: `192.168.1.41`
-
-* **Site 2 (PUB):**
-  * Subnet: `10.10.10.0/24`
-  * Additional DC (ADC): `pub1.domain.local`
-  * IP Address: `10.10.10.41`
-
-* **Site 3 (DU):**
-  * Subnet: `10.30.0.0/24`
-  * Additional DC (ADC): `du1.domain.local`
-  * IP Address: `10.30.0.41`
-
 ---
 
 ### **Assistant Response:**
