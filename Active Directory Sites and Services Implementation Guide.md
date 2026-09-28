@@ -2,8 +2,6 @@
 
 ---
 
-### **Assistant Response:**
-
 #### Topology & Mapping Summary
 
 | Site Name | Subnet | Domain Controller | IP Address | Topology Role |
