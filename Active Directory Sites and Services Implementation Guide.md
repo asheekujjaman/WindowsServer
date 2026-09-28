@@ -70,6 +70,7 @@ Remove-ADReplicationSiteLink -Identity "DEFAULTIPSITELINK" -Confirm:$false
 repadmin /showrepl
 repadmin /summary
 dcdiag /test:dns
+repadmin /syncall /A /e
 ```
 
 ---
@@ -84,3 +85,6 @@ Why use it: It gives a quick executive snapshot showing total replication attemp
 3. dcdiag /test:dns
 Purpose: Performs targeted diagnostic tests on the Active Directory DNS infrastructure.
 Why use it: Active Directory relies completely on DNS to find Domain Controllers in specific sites (via SRV records). This command tests DNS delegation, registration, forwarders, and network connectivity to ensure clients in PUB or DU can find their local DC properly.
+
+4. Force Immediate Synchronization
+
