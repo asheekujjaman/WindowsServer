@@ -92,3 +92,14 @@ dcdiag /test:dns
 ```
 
 ---
+1. repadmin /showrepl
+Purpose: Displays detailed Active Directory replication status for the local Domain Controller.
+Why use it: It shows exact replication partners (e.g., CHQ1 replicating with PUB1), the exact timestamp of the last successful synchronization, and specific error codes if replication fails across site links.
+
+2. repadmin /summary
+Purpose: Provides a high-level health overview of replication across all Domain Controllers in the domain.
+Why use it: It gives a quick executive snapshot showing total replication attempts, failures, and delta times for every DC (CHQ1, PUB1, DU1), allowing you to instantly identify which site is failing without checking each server individually.
+
+3. dcdiag /test:dns
+Purpose: Performs targeted diagnostic tests on the Active Directory DNS infrastructure.
+Why use it: Active Directory relies completely on DNS to find Domain Controllers in specific sites (via SRV records). This command tests DNS delegation, registration, forwarders, and network connectivity to ensure clients in PUB or DU can find their local DC properly.
