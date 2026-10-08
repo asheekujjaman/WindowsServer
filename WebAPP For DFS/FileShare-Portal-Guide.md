@@ -363,7 +363,7 @@ If a DFS folder lives on a different disk than the `.recycle` folder, moving it 
 
 | I want to... | Change | Where |
 |---|---|---|
-| Stop all deleting | Delete mode = *Do not allow deleting* (specify who delete and who may not related to create files/ write data & Create folder / append data) | Admin > Locations > Edit |
+| Stop all deleting | Delete mode = *Do not allow deleting* (specify who delete and who may not related to create files/ write data & Create folder / append data ntfs permisson on root folder under C>dfsroot) | Admin > Locations > Edit |
 | Stop folder zip downloads | Untick *Allow folder download as zip* | Admin > Settings |
 | Limit zip size | *Maximum zip size (MB)* | Admin > Settings |
 | Stop file preview completely | Untick *Allow file preview* | Admin > Settings |
