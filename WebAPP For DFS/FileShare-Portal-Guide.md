@@ -155,7 +155,7 @@ $a = "$env:windir\system32\inetsrv\appcmd.exe"
 | Site name | `FileShare` |
 | Application pool | `FileSharePool` |
 | Physical path | `C:\inetpub\FileShare` |
-| Binding type | `https`, port `443`, host name `files.hm.com`, tick *Require Server Name Indication*, choose your certificate |
+| Binding type | `https`, port `443`, host name `files.hm.com or blank access by IP`, tick *Require Server Name Indication*, choose your certificate. |
 
 Add a second binding: `http`, port `80`, same host name. The portal redirects it to HTTPS.
 
