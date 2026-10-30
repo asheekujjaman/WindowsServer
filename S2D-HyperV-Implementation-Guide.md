@@ -180,6 +180,10 @@ Install-WindowsFeature -Name Hyper-V, Failover-Clustering, File-Services, `
     Data-Center-Bridging, RSAT-Clustering-PowerShell, Hyper-V-PowerShell `
     -IncludeManagementTools -Restart
 ```
+**If getting error hyperv related run bellow code then try**
+```
+dism /online /enable-feature /featurename:Microsoft-Hyper-V /all /norestart 
+```
 
 **Run on all nodes at once from one admin PC**
 ```powershell
